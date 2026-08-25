@@ -93,6 +93,26 @@
   .card-actions { display:flex; gap:8px; }
   .card-actions button { flex:1; }
   .empty { grid-column:1/-1; font-family:'IBM Plex Mono',monospace; font-size:12.5px; color:var(--paper-dim); padding:40px 0; text-align:center; border:1px dashed var(--soil-line); border-radius:var(--radius); }
+
+  .modal-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,.65); align-items:center; justify-content:center; z-index:100; padding:20px; }
+  .modal-overlay.open { display:flex; }
+  .modal-box { background:var(--soil-raised); border:1px solid var(--soil-line); border-radius:var(--radius); padding:22px; width:100%; max-width:760px; max-height:88vh; overflow-y:auto; }
+  .modal-header { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:18px; gap:12px; }
+  .modal-title { font-size:20px; font-weight:700; }
+  .modal-controls { display:flex; justify-content:space-between; align-items:flex-end; flex-wrap:wrap; gap:14px; margin-bottom:16px; }
+  .range-btns { display:flex; gap:6px; }
+  .range-btns button.active { background:var(--harvest); color:var(--soil); border-color:var(--harvest); }
+  .axis-controls { display:flex; align-items:flex-end; gap:8px; }
+  .small-field { width:90px; }
+  .small-field label { display:block; font-family:'IBM Plex Mono',monospace; font-size:10px; color:var(--paper-dim); text-transform:uppercase; margin-bottom:5px; }
+  .small-field input { width:100%; background:var(--soil); border:1px solid var(--soil-line); color:var(--paper); font-family:'IBM Plex Mono',monospace; font-size:12px; padding:7px 8px; border-radius:var(--radius); }
+  .modal-chart-wrap { height:280px; margin-bottom:18px; }
+  .modal-chart-wrap canvas { height:280px !important; }
+  .valve-log-label { font-family:'IBM Plex Mono',monospace; font-size:10px; color:var(--paper-dim); text-transform:uppercase; margin-bottom:8px; }
+  .valve-log { font-family:'IBM Plex Mono',monospace; font-size:12px; display:flex; flex-direction:column; gap:6px; max-height:140px; overflow-y:auto; }
+  .valve-log-row { display:flex; justify-content:space-between; padding:6px 9px; background:var(--soil); border-radius:var(--radius); border:1px solid var(--soil-line); }
+  .valve-log-row.open { color:var(--crop); }
+  .valve-log-row.closed { color:var(--paper-dim); }
 </style>
 </head>
 <body>
@@ -128,6 +148,39 @@
 
   <div class="devices" id="devices">
     <div class="empty" id="emptyState">liga ao backend acima para veres os dispositivos</div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal-box">
+    <div class="modal-header">
+      <div>
+        <div class="modal-title" id="modalTitle">Device</div>
+        <div class="config-msg" id="modalMsg"></div>
+      </div>
+      <button class="ghost small" id="modalClose">Fechar ✕</button>
+    </div>
+
+    <div class="modal-controls">
+      <div class="range-btns" id="rangeBtns">
+        <button class="small ghost" data-hours="1">1h</button>
+        <button class="small ghost" data-hours="6">6h</button>
+        <button class="small ghost active" data-hours="24">24h</button>
+        <button class="small ghost" data-hours="168">7d</button>
+      </div>
+      <div class="axis-controls">
+        <div class="field small-field"><label>Y mín (°C)</label><input type="number" step="0.1" id="yMin" placeholder="auto"></div>
+        <div class="field small-field"><label>Y máx (°C)</label><input type="number" step="0.1" id="yMax" placeholder="auto"></div>
+        <button class="small ghost" id="yAutoBtn">Auto</button>
+      </div>
+    </div>
+
+    <div class="chart-wrap modal-chart-wrap">
+      <canvas id="detailChart"></canvas>
+    </div>
+
+    <div class="valve-log-label">Mudanças de estado da válvula neste período</div>
+    <div class="valve-log" id="valveLog">a carregar…</div>
   </div>
 </div>
 
@@ -182,10 +235,12 @@ function ensureCard(id) {
     <div class="card-actions">
       <button class="small" data-role="apply">Aplicar</button>
       <button class="ghost small" data-role="toggle-valve">Alternar válvula</button>
+      <button class="ghost small" data-role="details">Detalhes</button>
     </div>
     <div class="cmd-status" data-role="cmd-status"></div>
   `;
   const statusEl = el.querySelector('[data-role="cmd-status"]');
+  el.querySelector('[data-role="details"]').onclick = () => openDetail(id);
   el.querySelector('[data-role="apply"]').onclick = async () => {
     const setVal = el.querySelector('[data-role="set-input"]').value;
     const deltaVal = el.querySelector('[data-role="delta-input"]').value;
@@ -306,6 +361,130 @@ async function loadHistory(id) {
     markChartHasData(id);
   } catch (err) {
     if (emptyMsgEl) emptyMsgEl.textContent = 'sem histórico (erro de rede) — a acumular em tempo real…';
+  }
+}
+
+let detailChart = null;
+let currentDetailId = null;
+let currentDetailHours = 24;
+const modalOverlay = document.getElementById('modalOverlay');
+const modalTitle = document.getElementById('modalTitle');
+const modalMsg = document.getElementById('modalMsg');
+const valveLogEl = document.getElementById('valveLog');
+const yMinInput = document.getElementById('yMin');
+const yMaxInput = document.getElementById('yMax');
+
+function openDetail(id) {
+  currentDetailId = id;
+  currentDetailHours = 24;
+  modalTitle.textContent = deviceLabel(id) + ' (' + id + ')';
+  yMinInput.value = '';
+  yMaxInput.value = '';
+  document.querySelectorAll('#rangeBtns button').forEach(b => b.classList.toggle('active', Number(b.dataset.hours) === 24));
+  modalOverlay.classList.add('open');
+
+  if (!detailChart) {
+    const ctx = document.getElementById('detailChart').getContext('2d');
+    detailChart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: [],
+        datasets: [
+          { label: 'Temperatura', data: [], borderColor: '#c9974a', borderWidth: 1.5, pointRadius: 0, tension: 0.3, yAxisID: 'y' },
+          { label: 'Válvula abriu', data: [], borderColor: '#6a9c5f', backgroundColor: '#6a9c5f', pointRadius: 6, pointStyle: 'triangle', showLine: false, yAxisID: 'y' },
+          { label: 'Válvula fechou', data: [], borderColor: '#c15c4a', backgroundColor: '#c15c4a', pointRadius: 6, pointStyle: 'rectRot', showLine: false, yAxisID: 'y' },
+        ],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { display: true, labels: { color: '#a9a693', font: { size: 10 } } } },
+        scales: {
+          x: { ticks: { color: '#a9a693', font: { size: 9 }, maxTicksLimit: 8, maxRotation: 0 }, grid: { display: false } },
+          y: { ticks: { color: '#a9a693', font: { size: 10 } }, grid: { color: '#3a3f33' } },
+        },
+      },
+    });
+  }
+  loadDetail(id, currentDetailHours);
+}
+
+document.getElementById('modalClose').onclick = () => modalOverlay.classList.remove('open');
+modalOverlay.onclick = (e) => { if (e.target === modalOverlay) modalOverlay.classList.remove('open'); };
+
+document.getElementById('rangeBtns').addEventListener('click', (e) => {
+  const btn = e.target.closest('button[data-hours]');
+  if (!btn || !currentDetailId) return;
+  currentDetailHours = Number(btn.dataset.hours);
+  document.querySelectorAll('#rangeBtns button').forEach(b => b.classList.toggle('active', b === btn));
+  loadDetail(currentDetailId, currentDetailHours);
+});
+
+function applyYAxis() {
+  if (!detailChart) return;
+  const min = yMinInput.value.trim();
+  const max = yMaxInput.value.trim();
+  detailChart.options.scales.y.min = min === '' ? undefined : Number(min);
+  detailChart.options.scales.y.max = max === '' ? undefined : Number(max);
+  detailChart.update();
+}
+document.getElementById('yAutoBtn').onclick = () => { yMinInput.value = ''; yMaxInput.value = ''; applyYAxis(); };
+yMinInput.onchange = applyYAxis;
+yMaxInput.onchange = applyYAxis;
+
+async function loadDetail(id, hours) {
+  modalMsg.textContent = 'a carregar…';
+  valveLogEl.textContent = 'a carregar…';
+  try {
+    const [tempRes, valveRes] = await Promise.all([
+      fetch(`${apiUrl}/api/devices/${id}/history?hours=${hours}`, { headers: { 'x-api-key': apiKey } }),
+      fetch(`${apiUrl}/api/devices/${id}/valve-history?hours=${hours}`, { headers: { 'x-api-key': apiKey } }),
+    ]);
+
+    const tempRows = tempRes.ok ? await tempRes.json() : [];
+    const valveRows = valveRes.ok ? await valveRes.json() : [];
+
+    detailChart.data.labels = tempRows.map(r => new Date(r.time).toLocaleString());
+    detailChart.data.datasets[0].data = tempRows.map(r => r.value);
+
+    // marca os pontos de mudança da válvula sobre a linha de temperatura, alinhados
+    // pela MESMA posição (índice) da leitura de temperatura mais próxima no tempo —
+    // nunca pelo texto da etiqueta, porque há etiquetas repetidas (sem precisão de
+    // milissegundos) e isso fazia todos os marcadores colarem-se ao início do gráfico.
+    const isOpen = (v) => v.open === true || v.open === 'true';
+    const openData = new Array(tempRows.length).fill(null);
+    const closedData = new Array(tempRows.length).fill(null);
+    valveRows.forEach(v => {
+      const vTime = new Date(v.time).getTime();
+      let closest = null, closestDiff = Infinity;
+      tempRows.forEach((t, i) => {
+        const diff = Math.abs(new Date(t.time).getTime() - vTime);
+        if (diff < closestDiff) { closestDiff = diff; closest = i; }
+      });
+      if (closest === null) return;
+      const value = detailChart.data.datasets[0].data[closest];
+      if (isOpen(v)) openData[closest] = value; else closedData[closest] = value;
+    });
+    detailChart.data.datasets[1].data = openData;
+    detailChart.data.datasets[2].data = closedData;
+    detailChart.update();
+
+    modalMsg.textContent = tempRows.length
+      ? `${tempRows.length} leituras de temperatura`
+      : 'sem histórico de temperatura para este período (falta configurar o InfluxDB, ou ainda não há dados)';
+
+    if (!valveRows.length) {
+      valveLogEl.innerHTML = '<div class="valve-log-row closed">sem mudanças de válvula registadas neste período</div>';
+    } else {
+      valveLogEl.innerHTML = valveRows.slice().reverse().map(v => {
+        const state = isOpen(v) ? 'aberta' : 'fechada';
+        const cls = isOpen(v) ? 'open' : 'closed';
+        return `<div class="valve-log-row ${cls}"><span>${new Date(v.time).toLocaleString()}</span><span>${state}</span></div>`;
+      }).join('');
+    }
+  } catch (err) {
+    modalMsg.textContent = 'erro ao carregar histórico';
+    valveLogEl.textContent = 'erro ao carregar';
   }
 }
 

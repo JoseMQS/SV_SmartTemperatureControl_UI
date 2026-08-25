@@ -11,8 +11,17 @@ if (config.influx.token) {
   queryApi = influxDB.getQueryApi(config.influx.org);
 }
 
+// evita gravar uma leitura por cada mensagem MQTT (podem chegar a cada poucos segundos) —
+// só escreve, no máximo, uma vez a cada `writeIntervalMs` por device.
+const lastWriteMs = new Map();
+
 function writeTemperature(deviceId, temperature) {
   if (!writeApi || temperature === null || Number.isNaN(temperature)) return;
+  const now = Date.now();
+  const last = lastWriteMs.get(deviceId) || 0;
+  if (now - last < config.influx.writeIntervalMs) return;
+  lastWriteMs.set(deviceId, now);
+
   const point = new Point('temp')
     .tag('device_name', deviceId)
     .tag('location', 'adega')
@@ -45,4 +54,37 @@ async function queryHistory(deviceId, hours = 24) {
   return rows;
 }
 
-module.exports = { writeTemperature, queryHistory, enabled: !!writeApi };
+function writeValveState(deviceId, open) {
+  if (!writeApi) return;
+  const point = new Point('valve')
+    .tag('device_name', deviceId)
+    .tag('location', 'adega')
+    .booleanField('open', open);
+  writeApi.writePoint(point);
+  writeApi.flush().catch((err) => logger.error({ err }, 'Falha ao escrever estado da válvula no InfluxDB'));
+}
+
+/** Devolve [{ time, open }] das mudanças de estado da válvula nas últimas `hours` horas */
+async function queryValveHistory(deviceId, hours = 24) {
+  if (!queryApi) return [];
+  const flux = `
+    from(bucket: "${config.influx.bucket}")
+      |> range(start: -${hours}h)
+      |> filter(fn: (r) => r._measurement == "valve")
+      |> filter(fn: (r) => r.device_name == "${deviceId}")
+      |> filter(fn: (r) => r._field == "open")
+      |> sort(columns: ["_time"])
+  `;
+  const rows = [];
+  try {
+    for await (const { values, tableMeta } of queryApi.iterateRows(flux)) {
+      const o = tableMeta.toObject(values);
+      rows.push({ time: o._time, open: o._value });
+    }
+  } catch (err) {
+    logger.error({ err, deviceId }, 'Falha ao consultar histórico da válvula no InfluxDB');
+  }
+  return rows;
+}
+
+module.exports = { writeTemperature, queryHistory, writeValveState, queryValveHistory, enabled: !!writeApi };

@@ -46,6 +46,12 @@ function createServer(mqttClient) {
     res.json(rows);
   });
 
+  app.get('/api/devices/:id/valve-history', requireApiKey, async (req, res) => {
+    const hours = Number(req.query.hours) || 24;
+    const rows = await influx.queryValveHistory(req.params.id, hours);
+    res.json(rows);
+  });
+
   app.post('/api/devices/:id/command', requireApiKey, (req, res) => {
     const { type, value } = req.body || {};
     const allowed = ['temperature_set', 'temperature_delta', 'valve_toggle'];

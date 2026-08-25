@@ -44,6 +44,7 @@ const config = {
     token: process.env.INFLUX_TOKEN,
     org: process.env.INFLUX_ORG,
     bucket: process.env.INFLUX_BUCKET,
+    writeIntervalMs: num('INFLUX_WRITE_INTERVAL_MS', 30000),
   },
   http: {
     port: num('HTTP_PORT', 3000),

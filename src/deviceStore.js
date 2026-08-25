@@ -6,6 +6,7 @@ const { config } = require('./config');
  *  - 'update'        (id, state)            sempre que chega uma mensagem nova
  *  - 'status-change'  (id, online: bool)      quando um device fica online/offline
  *  - 'threshold-cross' (id, temp)             quando a temperatura ultrapassa o limiar
+ *  - 'valve-change'   (id, open: bool)        quando o estado da válvula muda
  */
 class DeviceStore extends EventEmitter {
   constructor() {
@@ -41,6 +42,7 @@ class DeviceStore extends EventEmitter {
 
     const wasOnline = dev.online;
     const prevTemp = dev.current_temperature;
+    const prevValve = dev.valve_state;
 
     dev.lastSeen = Date.now();
     dev.online = true;
@@ -52,6 +54,8 @@ class DeviceStore extends EventEmitter {
     this.emit('update', id, dev);
 
     if (!wasOnline) this.emit('status-change', id, true);
+
+    if (prevValve !== null && prevValve !== dev.valve_state) this.emit('valve-change', id, dev.valve_state);
 
     const threshold = config.tempAlertThreshold;
     const crossedUp = prevTemp !== null && prevTemp <= threshold && dev.current_temperature > threshold;
