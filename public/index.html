@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>QSAAFrigus · Painel de Controlo</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
+<style>
+  :root {
+    --soil: #1b1e1a; --soil-raised: #24281f; --soil-line: #3a3f33;
+    --paper: #eee9dc; --paper-dim: #a9a693;
+    --harvest: #c9974a; --crop: #6a9c5f; --alert: #c15c4a; --stale: #7a7566;
+    --radius: 3px;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--soil); color: var(--paper);
+    font-family: 'Space Grotesk', sans-serif; min-height: 100vh; padding: 32px 24px 64px;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; }
+  header {
+    display: flex; justify-content: space-between; align-items: flex-end;
+    border-bottom: 1px solid var(--soil-line); padding-bottom: 20px; margin-bottom: 28px;
+    gap: 20px; flex-wrap: wrap;
+  }
+  h1 { font-size: 26px; font-weight: 700; margin: 0 0 4px; }
+  .subtitle { font-family: 'IBM Plex Mono', monospace; font-size: 12.5px; color: var(--paper-dim); }
+  .conn-badge {
+    font-family: 'IBM Plex Mono', monospace; font-size: 12px;
+    display: flex; align-items: center; gap: 8px; padding: 7px 12px;
+    border: 1px solid var(--soil-line); border-radius: var(--radius);
+  }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--stale); }
+  .dot.on { background: var(--crop); box-shadow: 0 0 8px var(--crop); }
+  .dot.off { background: var(--alert); }
+
+  .config {
+    background: var(--soil-raised); border: 1px solid var(--soil-line);
+    border-radius: var(--radius); padding: 18px 20px; margin-bottom: 32px;
+  }
+  .config summary {
+    cursor: pointer; font-family: 'IBM Plex Mono', monospace; font-size: 12px;
+    color: var(--harvest); text-transform: uppercase;
+  }
+  .config[open] summary { margin-bottom: 16px; }
+  .grid-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+  .field label { display:block; font-family:'IBM Plex Mono',monospace; font-size:10.5px; color:var(--paper-dim); text-transform:uppercase; margin-bottom:5px; }
+  .field input { width:100%; background:var(--soil); border:1px solid var(--soil-line); color:var(--paper); font-family:'IBM Plex Mono',monospace; font-size:13px; padding:8px 10px; border-radius:var(--radius); }
+  .field input:focus { outline:none; border-color:var(--harvest); }
+  .config-actions { margin-top:16px; display:flex; gap:10px; align-items:center; }
+  button { font-family:'Space Grotesk',sans-serif; font-weight:500; font-size:13px; background:var(--harvest); color:var(--soil); border:none; padding:9px 18px; border-radius:var(--radius); cursor:pointer; }
+  button.ghost { background:transparent; border:1px solid var(--soil-line); color:var(--paper); }
+  button.small { padding:6px 12px; font-size:12px; }
+  .config-msg { font-family:'IBM Plex Mono',monospace; font-size:11.5px; color:var(--paper-dim); }
+
+  .devices { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; }
+  .card { background: var(--soil-raised); border: 1px solid var(--soil-line); border-radius: var(--radius); padding: 18px; position: relative; }
+  .card::before { content:''; position:absolute; top:0; left:0; width:3px; height:100%; background:var(--stale); }
+  .card.live::before { background: var(--crop); }
+  .card.dead::before { background: var(--alert); }
+  .card-top { display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; }
+  .device-id { font-weight:700; font-size:16px; }
+  .last-seen { font-family:'IBM Plex Mono',monospace; font-size:10px; color:var(--paper-dim); }
+  .reading-row { display:flex; align-items:baseline; gap:10px; margin-bottom:10px; }
+  .reading { font-family:'IBM Plex Mono',monospace; font-size:28px; font-weight:600; color:var(--harvest); }
+  .reading-unit { font-size:13px; color:var(--paper-dim); }
+  .valve-pill { margin-left:auto; font-family:'IBM Plex Mono',monospace; font-size:10.5px; text-transform:uppercase; padding:4px 9px; border-radius:20px; border:1px solid var(--soil-line); }
+  .valve-pill.open { color:var(--crop); border-color:var(--crop); }
+  .valve-pill.closed { color:var(--paper-dim); }
+  canvas { width: 100% !important; height: 90px !important; margin-bottom: 12px; }
+  .setpoints { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:12px; }
+  .setpoint label { display:block; font-family:'IBM Plex Mono',monospace; font-size:10px; color:var(--paper-dim); text-transform:uppercase; margin-bottom:5px; }
+  .setpoint input { width:100%; background:var(--soil); border:1px solid var(--soil-line); color:var(--paper); font-family:'IBM Plex Mono',monospace; font-size:13px; padding:7px 8px; border-radius:var(--radius); }
+  .card-actions { display:flex; gap:8px; }
+  .card-actions button { flex:1; }
+  .empty { grid-column:1/-1; font-family:'IBM Plex Mono',monospace; font-size:12.5px; color:var(--paper-dim); padding:40px 0; text-align:center; border:1px dashed var(--soil-line); border-radius:var(--radius); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>QSAAFrigus</h1>
+      <div class="subtitle">painel próprio · fala com o backend, não diretamente com o broker</div>
+    </div>
+    <div class="conn-badge"><span class="dot" id="connDot"></span><span id="connLabel">desligado</span></div>
+  </header>
+
+  <details class="config" id="configPanel" open>
+    <summary>Ligação ao backend</summary>
+    <div class="grid-form">
+      <div class="field">
+        <label for="apiUrl">URL do backend</label>
+        <input id="apiUrl" value="https://o-teu-servico.up.railway.app">
+      </div>
+      <div class="field">
+        <label for="apiKey">API key</label>
+        <input id="apiKey" type="password" placeholder="a mesma do .env">
+      </div>
+    </div>
+    <div class="config-actions">
+      <button id="connectBtn">Ligar</button>
+      <span class="config-msg" id="configMsg"></span>
+    </div>
+  </details>
+
+  <div class="devices" id="devices">
+    <div class="empty" id="emptyState">liga ao backend acima para veres os dispositivos</div>
+  </div>
+</div>
+
+<script>
+let apiUrl = '';
+let apiKey = '';
+let ws = null;
+const charts = new Map();
+const devicesEl = document.getElementById('devices');
+const emptyState = document.getElementById('emptyState');
+const connDot = document.getElementById('connDot');
+const connLabel = document.getElementById('connLabel');
+const configMsg = document.getElementById('configMsg');
+
+function setStatus(state, text) {
+  connDot.className = 'dot' + (state ? ' ' + state : '');
+  connLabel.textContent = text;
+}
+
+function deviceLabel(id) {
+  const m = id.match(/(\d+)$/);
+  return m ? 'Device ' + m[1] : id;
+}
+
+function ensureCard(id) {
+  let el = document.getElementById('card-' + id);
+  if (el) return el;
+  emptyState.style.display = 'none';
+  el = document.createElement('div');
+  el.className = 'card';
+  el.id = 'card-' + id;
+  el.innerHTML = `
+    <div class="card-top">
+      <div class="device-id">${deviceLabel(id)}</div>
+      <div class="last-seen" data-role="lastseen">—</div>
+    </div>
+    <div class="reading-row">
+      <span class="reading" data-role="reading">—</span>
+      <span class="reading-unit">°C</span>
+      <span class="valve-pill closed" data-role="valve">fechada</span>
+    </div>
+    <canvas data-role="chart"></canvas>
+    <div class="setpoints">
+      <div class="setpoint"><label>Setpoint</label><input type="number" step="0.1" data-role="set-input"></div>
+      <div class="setpoint"><label>Delta</label><input type="number" step="0.1" data-role="delta-input"></div>
+    </div>
+    <div class="card-actions">
+      <button class="small" data-role="apply">Aplicar</button>
+      <button class="ghost small" data-role="toggle-valve">Alternar válvula</button>
+    </div>
+  `;
+  el.querySelector('[data-role="apply"]').onclick = () => {
+    const setVal = el.querySelector('[data-role="set-input"]').value;
+    const deltaVal = el.querySelector('[data-role="delta-input"]').value;
+    if (setVal !== '') sendCommand(id, 'temperature_set', setVal);
+    if (deltaVal !== '') sendCommand(id, 'temperature_delta', deltaVal);
+  };
+  el.querySelector('[data-role="toggle-valve"]').onclick = () => {
+    const open = el.querySelector('[data-role="valve"]').classList.contains('open');
+    sendCommand(id, 'valve_toggle', open ? 'false' : 'true');
+  };
+  devicesEl.appendChild(el);
+
+  const ctx = el.querySelector('[data-role="chart"]').getContext('2d');
+  const chart = new Chart(ctx, {
+    type: 'line',
+    data: { labels: [], datasets: [{ data: [], borderColor: '#c9974a', borderWidth: 1.5, pointRadius: 0, tension: 0.3 }] },
+    options: {
+      responsive: true,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { display: false },
+        y: { ticks: { color: '#a9a693', font: { size: 9 } }, grid: { color: '#3a3f33' } },
+      },
+    },
+  });
+  charts.set(id, chart);
+  loadHistory(id);
+  return el;
+}
+
+function renderDevice(dev) {
+  const el = ensureCard(dev.id);
+  el.className = 'card ' + (dev.online ? 'live' : 'dead');
+  const setInput = el.querySelector('[data-role="set-input"]');
+  const deltaInput = el.querySelector('[data-role="delta-input"]');
+
+  if (dev.current_temperature !== null) {
+    el.querySelector('[data-role="reading"]').textContent = Number(dev.current_temperature).toFixed(1);
+  }
+  if (dev.temperature_set !== null && document.activeElement !== setInput) {
+    setInput.value = Number(dev.temperature_set).toFixed(1);
+  }
+  if (dev.temperature_delta !== null && document.activeElement !== deltaInput) {
+    deltaInput.value = Number(dev.temperature_delta).toFixed(1);
+  }
+  const valveEl = el.querySelector('[data-role="valve"]');
+  valveEl.textContent = dev.valve_state ? 'aberta' : 'fechada';
+  valveEl.className = 'valve-pill ' + (dev.valve_state ? 'open' : 'closed');
+
+  const secondsAgo = dev.lastSeen ? Math.round((Date.now() - dev.lastSeen) / 1000) : null;
+  el.querySelector('[data-role="lastseen"]').textContent = secondsAgo === null ? 'sem dados' : (secondsAgo < 5 ? 'agora' : secondsAgo + 's atrás');
+
+  const chart = charts.get(dev.id);
+  if (chart && dev.current_temperature !== null) {
+    const now = new Date().toLocaleTimeString();
+    chart.data.labels.push(now);
+    chart.data.datasets[0].data.push(dev.current_temperature);
+    if (chart.data.labels.length > 60) { chart.data.labels.shift(); chart.data.datasets[0].data.shift(); }
+    chart.update('none');
+  }
+}
+
+async function loadHistory(id) {
+  try {
+    const res = await fetch(`${apiUrl}/api/devices/${id}/history?hours=24`, { headers: { 'x-api-key': apiKey } });
+    if (!res.ok) return;
+    const rows = await res.json();
+    const chart = charts.get(id);
+    if (!chart || !rows.length) return;
+    chart.data.labels = rows.map(r => new Date(r.time).toLocaleTimeString());
+    chart.data.datasets[0].data = rows.map(r => r.value);
+    chart.update('none');
+  } catch { /* histórico é opcional, ignora falhas silenciosamente */ }
+}
+
+async function sendCommand(id, type, value) {
+  try {
+    const res = await fetch(`${apiUrl}/api/devices/${id}/command`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey },
+      body: JSON.stringify({ type, value }),
+    });
+    if (!res.ok) configMsg.textContent = 'falha ao enviar comando';
+  } catch (err) {
+    configMsg.textContent = 'erro de rede ao enviar comando';
+  }
+}
+
+document.getElementById('connectBtn').onclick = () => {
+  apiUrl = document.getElementById('apiUrl').value.trim().replace(/\/$/, '');
+  apiKey = document.getElementById('apiKey').value.trim();
+  if (!apiUrl || !apiKey) { configMsg.textContent = 'preenche URL e API key'; return; }
+
+  if (ws) ws.close();
+  const wsUrl = apiUrl.replace(/^http/, 'ws') + '/ws?key=' + encodeURIComponent(apiKey);
+  setStatus('', 'a ligar…');
+  ws = new WebSocket(wsUrl);
+
+  ws.onopen = () => { setStatus('on', 'ligado'); configMsg.textContent = 'ligado ao backend'; document.getElementById('configPanel').open = false; };
+  ws.onclose = () => setStatus('off', 'desligado');
+  ws.onerror = () => { setStatus('off', 'erro'); configMsg.textContent = 'erro na ligação'; };
+  ws.onmessage = (evt) => {
+    const msg = JSON.parse(evt.data);
+    if (msg.type === 'snapshot') msg.devices.forEach(renderDevice);
+    else if (msg.type === 'update') renderDevice(msg.device);
+  };
+};
+</script>
+</body>
+</html>
