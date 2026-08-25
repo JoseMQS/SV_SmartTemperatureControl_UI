@@ -18,6 +18,7 @@ Edita o `.env`:
 - `SMTP_PASS` — a password/app-password da conta de email que já usas
 - `INFLUX_TOKEN` — o token da tua Influx Cloud (o Node-RED já tinha isto configurado, só precisas de ir buscar o token ao painel da InfluxDB Cloud)
 - `API_KEY` — inventa uma password longa; é o que o dashboard usa para falar com este serviço
+- `BROKER_CA_PATH` — só é preciso se o broker EMQX Cloud recusar a ligação TLS por omissão. Ver `certs/README.md` para saber como obter o certificado.
 
 ## 2. Correr localmente
 

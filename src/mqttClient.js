@@ -1,3 +1,4 @@
+const fs = require('fs');
 const mqtt = require('mqtt');
 const { config } = require('./config');
 const logger = require('./logger');
@@ -8,6 +9,11 @@ function createMqttClient() {
   const protocol = config.broker.useTls ? 'mqtts' : 'mqtt';
   const url = `${protocol}://${config.broker.host}:${config.broker.port}`;
 
+  let ca;
+  if (config.broker.caPath) {
+    ca = fs.readFileSync(config.broker.caPath);
+  }
+
   const client = mqtt.connect(url, {
     username: config.broker.user,
     password: config.broker.pass,
@@ -15,6 +21,8 @@ function createMqttClient() {
     reconnectPeriod: 3000, // tenta religar a cada 3s indefinidamente
     connectTimeout: 15000,
     protocolVersion: 5,
+    ca,
+    rejectUnauthorized: true,
   });
 
   client.on('connect', () => {

@@ -24,6 +24,7 @@ const config = {
     useTls: bool('BROKER_USE_TLS', true),
     user: process.env.BROKER_USER || undefined,
     pass: process.env.BROKER_PASS || undefined,
+    caPath: process.env.BROKER_CA_PATH || undefined,
   },
   topicBase: process.env.TOPIC_BASE || 'QSAAFrigus',
   deviceIds: list('DEVICE_IDS', ['sensor1', 'sensor2', 'sensor3', 'sensor4']),

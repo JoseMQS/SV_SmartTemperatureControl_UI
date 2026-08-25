@@ -17,6 +17,16 @@ function createServer(mqttClient) {
   const app = express();
   app.use(express.json());
 
+  // O dashboard corre noutra origem (ficheiro local ou outro domínio), por isso
+  // precisa destes cabeçalhos para o browser deixar de bloquear os pedidos.
+  app.use((req, res, next) => {
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Content-Type,x-api-key');
+    if (req.method === 'OPTIONS') return res.sendStatus(204);
+    next();
+  });
+
   app.get('/health', (req, res) => {
     res.json({ ok: true, mqtt: mqttClient.connected, influx: influx.enabled });
   });
