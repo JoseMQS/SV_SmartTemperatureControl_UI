@@ -7,10 +7,17 @@ const logger = require('./logger');
 const deviceStore = require('./deviceStore');
 const influx = require('./influx');
 
+/** Devolve o nome da pessoa dona da chave, ou null se a chave não for válida */
+function identifyKey(key) {
+  if (!key) return null;
+  if (key === config.http.apiKey) return 'admin';
+  return config.http.namedApiKeys[key] || null;
+}
+
 function requireApiKey(req, res, next) {
-  if (req.get('x-api-key') !== config.http.apiKey) {
-    return res.status(401).json({ error: 'unauthorized' });
-  }
+  const user = identifyKey(req.get('x-api-key'));
+  if (!user) return res.status(401).json({ error: 'unauthorized' });
+  req.user = user;
   next();
 }
 
@@ -59,9 +66,10 @@ function createServer(mqttClient) {
       return res.status(400).json({ error: 'tipo de comando inválido', allowed });
     }
     const topic = `${config.topicBase}/${req.params.id}/${type}`;
+    logger.info({ user: req.user, deviceId: req.params.id, type, value }, 'Comando enviado');
     mqttClient.publish(topic, String(value), { qos: 1 }, (err) => {
       if (err) {
-        logger.error({ err, topic }, 'Falha ao publicar comando');
+        logger.error({ err, topic, user: req.user }, 'Falha ao publicar comando');
         return res.status(502).json({ error: 'falha ao publicar no broker' });
       }
       res.json({ ok: true });
@@ -80,10 +88,14 @@ function createServer(mqttClient) {
 
   wss.on('connection', (ws, req) => {
     const key = new URL(req.url, 'http://x').searchParams.get('key');
-    if (key !== config.http.apiKey) {
+    const user = identifyKey(key);
+    if (!user) {
       ws.close(4001, 'unauthorized');
       return;
     }
+    ws.user = user;
+    logger.info({ user }, 'Dashboard ligado');
+    ws.on('close', () => logger.info({ user }, 'Dashboard desligado'));
     ws.send(JSON.stringify({ type: 'snapshot', devices: deviceStore.snapshot() }));
   });
 

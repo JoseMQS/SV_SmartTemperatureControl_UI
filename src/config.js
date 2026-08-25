@@ -17,6 +17,18 @@ function list(name, fallback) {
   return v.split(',').map((s) => s.trim()).filter(Boolean);
 }
 
+/** Lê "Nome:chave,Nome2:chave2" e devolve { chave: "Nome" } */
+function keyMap(name) {
+  const v = process.env[name];
+  if (!v) return {};
+  const map = {};
+  for (const pair of v.split(',')) {
+    const [person, key] = pair.split(':').map((s) => s.trim());
+    if (person && key) map[key] = person;
+  }
+  return map;
+}
+
 const config = {
   broker: {
     host: process.env.BROKER_HOST,
@@ -49,6 +61,8 @@ const config = {
   http: {
     port: num('HTTP_PORT', 3000),
     apiKey: process.env.API_KEY,
+    // chaves extra, nomeadas por pessoa: API_KEYS=Zé:chave-do-ze,Maria:chave-da-maria
+    namedApiKeys: keyMap('API_KEYS'),
   },
 };
 
