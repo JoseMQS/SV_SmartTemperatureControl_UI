@@ -36,15 +36,24 @@
   .dot.on { background: var(--crop); box-shadow: 0 0 8px var(--crop); }
   .dot.off { background: var(--alert); }
 
+  .header-actions { display:flex; align-items:center; gap:10px; }
+  .gear-btn {
+    background:transparent; border:1px solid var(--soil-line); color:var(--paper-dim);
+    width:32px; height:32px; border-radius:var(--radius); font-size:15px; padding:0;
+    cursor:pointer; line-height:1;
+  }
+  .gear-btn:hover { color:var(--harvest); border-color:var(--harvest); }
+
   .config {
+    display: none;
     background: var(--soil-raised); border: 1px solid var(--soil-line);
     border-radius: var(--radius); padding: 18px 20px; margin-bottom: 32px;
   }
-  .config summary {
-    cursor: pointer; font-family: 'IBM Plex Mono', monospace; font-size: 12px;
-    color: var(--harvest); text-transform: uppercase;
+  .config.open { display: block; }
+  .config-title {
+    font-family: 'IBM Plex Mono', monospace; font-size: 12px;
+    color: var(--harvest); text-transform: uppercase; margin-bottom: 16px;
   }
-  .config[open] summary { margin-bottom: 16px; }
   .grid-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
   .field label { display:block; font-family:'IBM Plex Mono',monospace; font-size:10.5px; color:var(--paper-dim); text-transform:uppercase; margin-bottom:5px; }
   .field input { width:100%; background:var(--soil); border:1px solid var(--soil-line); color:var(--paper); font-family:'IBM Plex Mono',monospace; font-size:13px; padding:8px 10px; border-radius:var(--radius); }
@@ -93,15 +102,18 @@
       <h1>QSAAFrigus</h1>
       <div class="subtitle">painel próprio · fala com o backend, não diretamente com o broker</div>
     </div>
-    <div class="conn-badge"><span class="dot" id="connDot"></span><span id="connLabel">desligado</span></div>
+    <div class="header-actions">
+      <div class="conn-badge"><span class="dot" id="connDot"></span><span id="connLabel">desligado</span></div>
+      <button class="gear-btn" id="settingsBtn" type="button" title="Definições da ligação" aria-label="Definições da ligação">⚙</button>
+    </div>
   </header>
 
-  <details class="config" id="configPanel" open>
-    <summary>Ligação ao backend</summary>
+  <div class="config" id="configPanel">
+    <div class="config-title">Ligação ao backend</div>
     <div class="grid-form">
       <div class="field">
         <label for="apiUrl">URL do backend</label>
-        <input id="apiUrl" value="https://o-teu-servico.up.railway.app">
+        <input id="apiUrl" placeholder="https://o-teu-servico.up.railway.app">
       </div>
       <div class="field">
         <label for="apiKey">API key</label>
@@ -112,7 +124,7 @@
       <button id="connectBtn">Ligar</button>
       <span class="config-msg" id="configMsg"></span>
     </div>
-  </details>
+  </div>
 
   <div class="devices" id="devices">
     <div class="empty" id="emptyState">liga ao backend acima para veres os dispositivos</div>
@@ -312,9 +324,17 @@ async function sendCommand(id, type, value) {
   }
 }
 
-document.getElementById('connectBtn').onclick = () => {
-  apiUrl = document.getElementById('apiUrl').value.trim().replace(/\/$/, '');
-  apiKey = document.getElementById('apiKey').value.trim();
+const apiUrlInput = document.getElementById('apiUrl');
+const apiKeyInput = document.getElementById('apiKey');
+const configPanel = document.getElementById('configPanel');
+
+document.getElementById('settingsBtn').onclick = () => {
+  configPanel.classList.toggle('open');
+};
+
+function connect(url, key) {
+  apiUrl = url.replace(/\/$/, '');
+  apiKey = key;
   if (!apiUrl || !apiKey) { configMsg.textContent = 'preenche URL e API key'; return; }
 
   if (ws) ws.close();
@@ -322,7 +342,13 @@ document.getElementById('connectBtn').onclick = () => {
   setStatus('', 'a ligar…');
   ws = new WebSocket(wsUrl);
 
-  ws.onopen = () => { setStatus('on', 'ligado'); configMsg.textContent = 'ligado ao backend'; document.getElementById('configPanel').open = false; };
+  ws.onopen = () => {
+    setStatus('on', 'ligado');
+    configMsg.textContent = 'ligado ao backend';
+    configPanel.classList.remove('open');
+    localStorage.setItem('qsaafrigus.apiUrl', apiUrl);
+    localStorage.setItem('qsaafrigus.apiKey', apiKey);
+  };
   ws.onclose = () => setStatus('off', 'desligado');
   ws.onerror = () => { setStatus('off', 'erro'); configMsg.textContent = 'erro na ligação'; };
   ws.onmessage = (evt) => {
@@ -330,7 +356,25 @@ document.getElementById('connectBtn').onclick = () => {
     if (msg.type === 'snapshot') msg.devices.forEach(renderDevice);
     else if (msg.type === 'update') renderDevice(msg.device);
   };
+}
+
+document.getElementById('connectBtn').onclick = () => {
+  connect(apiUrlInput.value.trim(), apiKeyInput.value.trim());
 };
+
+// Preenche o URL/API key com o que usaste da última vez, ou — se estiveres a ver
+// esta página servida pelo próprio backend (em vez de um ficheiro local) — com o
+// endereço atual, para nem precisares de saber o URL.
+(function restoreConnection() {
+  const savedUrl = localStorage.getItem('qsaafrigus.apiUrl');
+  const savedKey = localStorage.getItem('qsaafrigus.apiKey');
+  if (savedUrl) apiUrlInput.value = savedUrl;
+  else if (location.protocol !== 'file:') apiUrlInput.value = location.origin;
+  if (savedKey) apiKeyInput.value = savedKey;
+
+  if (savedUrl && savedKey) connect(savedUrl, savedKey);
+  else configPanel.classList.add('open');
+})();
 </script>
 </body>
 </html>

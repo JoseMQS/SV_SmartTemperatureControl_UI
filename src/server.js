@@ -1,5 +1,6 @@
 const express = require('express');
 const http = require('http');
+const path = require('path');
 const { WebSocketServer } = require('ws');
 const { config } = require('./config');
 const logger = require('./logger');
@@ -26,6 +27,10 @@ function createServer(mqttClient) {
     if (req.method === 'OPTIONS') return res.sendStatus(204);
     next();
   });
+
+  // Serve o próprio dashboard, para poderes abri-lo direto pelo URL do backend
+  // (ex: http://localhost:3000) sem teres de duplicar o URL em lado nenhum.
+  app.use(express.static(path.join(__dirname, '..', 'public')));
 
   app.get('/health', (req, res) => {
     res.json({ ok: true, mqtt: mqttClient.connected, influx: influx.enabled });
