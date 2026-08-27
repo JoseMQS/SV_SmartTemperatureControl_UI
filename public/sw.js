@@ -1,4 +1,4 @@
-const CACHE_NAME = 'qsaafrigus-shell-v1';
+const CACHE_NAME = 'qsaafrigus-shell-v2';
 const SHELL_FILES = [
   '/',
   '/index.html',
@@ -22,9 +22,13 @@ self.addEventListener('activate', (event) => {
   );
 });
 
-// Só serve do cache os ficheiros estáticos do próprio shell (HTML/JS/ícones).
+// Só cacheia os ficheiros estáticos do próprio shell (HTML/JS/ícones).
 // Pedidos à API e ao WebSocket do backend vão sempre direto à rede, para nunca
 // mostrar dados desatualizados de temperatura/válvula.
+//
+// Rede primeiro, cache como fallback só quando offline — ao contrário de
+// "cache primeiro", isto garante que uma nova versão do shell chega sempre
+// que há rede, sem depender de bumpar o CACHE_NAME a cada deploy.
 self.addEventListener('fetch', (event) => {
   const req = event.request;
   if (req.method !== 'GET') return;
@@ -32,10 +36,10 @@ self.addEventListener('fetch', (event) => {
   if (url.origin !== self.location.origin || url.pathname.startsWith('/api/')) return;
 
   event.respondWith(
-    caches.match(req).then((cached) => cached || fetch(req).then((res) => {
+    fetch(req).then((res) => {
       const copy = res.clone();
       caches.open(CACHE_NAME).then((cache) => cache.put(req, copy));
       return res;
-    }).catch(() => cached))
+    }).catch(() => caches.match(req))
   );
 });
