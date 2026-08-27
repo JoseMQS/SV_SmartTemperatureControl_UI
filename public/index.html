@@ -121,6 +121,9 @@
   .valve-log-row { display:flex; justify-content:space-between; padding:6px 9px; background:var(--soil); border-radius:var(--radius); border:1px solid var(--soil-line); }
   .valve-log-row.open { color:var(--crop); }
   .valve-log-row.closed { color:var(--paper-dim); }
+  .valve-log-row.reboot { color:var(--alert); }
+  .valve-log-row.reconnect { color:var(--paper-dim); }
+  .section-gap { margin-top:18px; }
 </style>
 </head>
 <body>
@@ -188,6 +191,12 @@
 
     <div class="valve-log-label">Mudanças de estado da válvula neste período</div>
     <div class="valve-log" id="valveLog">a carregar…</div>
+
+    <div class="valve-log-label section-gap">Eventos de ligação (reinício suspeito vs. reconexão normal)</div>
+    <div class="valve-log" id="eventsLog">a carregar…</div>
+
+    <div class="valve-log-label section-gap">Histórico de comandos (quem alterou e para que valor)</div>
+    <div class="valve-log" id="commandsLog">a carregar…</div>
   </div>
 </div>
 
@@ -378,6 +387,8 @@ const modalOverlay = document.getElementById('modalOverlay');
 const modalTitle = document.getElementById('modalTitle');
 const modalMsg = document.getElementById('modalMsg');
 const valveLogEl = document.getElementById('valveLog');
+const eventsLogEl = document.getElementById('eventsLog');
+const commandsLogEl = document.getElementById('commandsLog');
 const yMinInput = document.getElementById('yMin');
 const yMaxInput = document.getElementById('yMax');
 
@@ -442,14 +453,20 @@ yMaxInput.onchange = applyYAxis;
 async function loadDetail(id, hours) {
   modalMsg.textContent = 'a carregar…';
   valveLogEl.textContent = 'a carregar…';
+  eventsLogEl.textContent = 'a carregar…';
+  commandsLogEl.textContent = 'a carregar…';
   try {
-    const [tempRes, valveRes] = await Promise.all([
+    const [tempRes, valveRes, eventsRes, commandsRes] = await Promise.all([
       fetch(`${apiUrl}/api/devices/${id}/history?hours=${hours}`, { headers: { 'x-api-key': apiKey } }),
       fetch(`${apiUrl}/api/devices/${id}/valve-history?hours=${hours}`, { headers: { 'x-api-key': apiKey } }),
+      fetch(`${apiUrl}/api/devices/${id}/events?hours=${hours}`, { headers: { 'x-api-key': apiKey } }),
+      fetch(`${apiUrl}/api/devices/${id}/commands?hours=${hours}`, { headers: { 'x-api-key': apiKey } }),
     ]);
 
     const tempRows = tempRes.ok ? await tempRes.json() : [];
     const valveRows = valveRes.ok ? await valveRes.json() : [];
+    const eventsRows = eventsRes.ok ? await eventsRes.json() : [];
+    const commandsRows = commandsRes.ok ? await commandsRes.json() : [];
 
     detailChart.data.labels = tempRows.map(r => new Date(r.time).toLocaleString());
     detailChart.data.datasets[0].data = tempRows.map(r => r.value);
@@ -489,9 +506,35 @@ async function loadDetail(id, hours) {
         return `<div class="valve-log-row ${cls}"><span>${new Date(v.time).toLocaleString()}</span><span>${state}</span></div>`;
       }).join('');
     }
+
+    if (!eventsRows.length) {
+      eventsLogEl.innerHTML = '<div class="valve-log-row closed">sem eventos de ligação neste período</div>';
+    } else {
+      eventsLogEl.innerHTML = eventsRows.slice().reverse().map(e => {
+        const rebooted = e.kind === 'reboot_suspected';
+        const cls = rebooted ? 'reboot' : 'reconnect';
+        const fmt = (n) => (n === null || n === undefined ? '—' : Number(n).toFixed(1) + '°C');
+        const label = rebooted
+          ? `⚠ possível reinício — reposto para setpoint ${fmt(e.expectedSet)} / delta ${fmt(e.expectedDelta)} (sensor reportou ${fmt(e.reportedSet)} / ${fmt(e.reportedDelta)})`
+          : 'reconectado (valores mantidos)';
+        return `<div class="valve-log-row ${cls}"><span>${new Date(e.time).toLocaleString()}</span><span>${label}</span></div>`;
+      }).join('');
+    }
+
+    if (!commandsRows.length) {
+      commandsLogEl.innerHTML = '<div class="valve-log-row closed">sem comandos enviados neste período</div>';
+    } else {
+      const typeLabels = { temperature_set: 'setpoint', temperature_delta: 'delta', valve_toggle: 'válvula' };
+      commandsLogEl.innerHTML = commandsRows.slice().reverse().map(c => {
+        const typeLabel = typeLabels[c.type] || c.type;
+        return `<div class="valve-log-row"><span>${new Date(c.time).toLocaleString()}</span><span>${c.user} → ${typeLabel}: ${c.value}</span></div>`;
+      }).join('');
+    }
   } catch (err) {
     modalMsg.textContent = 'erro ao carregar histórico';
     valveLogEl.textContent = 'erro ao carregar';
+    eventsLogEl.textContent = 'erro ao carregar';
+    commandsLogEl.textContent = 'erro ao carregar';
   }
 }
 

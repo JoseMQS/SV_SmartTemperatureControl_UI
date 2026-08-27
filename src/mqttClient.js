@@ -60,4 +60,9 @@ function createMqttClient() {
   return client;
 }
 
-module.exports = { createMqttClient };
+function publishCommand(client, deviceId, type, value, cb) {
+  const topic = `${config.topicBase}/${deviceId}/${type}`;
+  client.publish(topic, String(value), { qos: 1 }, cb);
+}
+
+module.exports = { createMqttClient, publishCommand };

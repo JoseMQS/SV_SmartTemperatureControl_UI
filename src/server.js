@@ -6,6 +6,8 @@ const { config } = require('./config');
 const logger = require('./logger');
 const deviceStore = require('./deviceStore');
 const influx = require('./influx');
+const commandStore = require('./commandStore');
+const { publishCommand } = require('./mqttClient');
 
 /** Devolve o nome da pessoa dona da chave, ou null se a chave não for válida */
 function identifyKey(key) {
@@ -59,19 +61,34 @@ function createServer(mqttClient) {
     res.json(rows);
   });
 
+  app.get('/api/devices/:id/commands', requireApiKey, async (req, res) => {
+    const hours = Number(req.query.hours) || 24;
+    const rows = await influx.queryCommands(req.params.id, hours);
+    res.json(rows);
+  });
+
+  app.get('/api/devices/:id/events', requireApiKey, async (req, res) => {
+    const hours = Number(req.query.hours) || 24;
+    const rows = await influx.queryDeviceEvents(req.params.id, hours);
+    res.json(rows);
+  });
+
   app.post('/api/devices/:id/command', requireApiKey, (req, res) => {
     const { type, value } = req.body || {};
     const allowed = ['temperature_set', 'temperature_delta', 'valve_toggle'];
     if (!allowed.includes(type)) {
       return res.status(400).json({ error: 'tipo de comando inválido', allowed });
     }
-    const topic = `${config.topicBase}/${req.params.id}/${type}`;
     logger.info({ user: req.user, deviceId: req.params.id, type, value }, 'Comando enviado');
-    mqttClient.publish(topic, String(value), { qos: 1 }, (err) => {
+    publishCommand(mqttClient, req.params.id, type, value, (err) => {
       if (err) {
-        logger.error({ err, topic, user: req.user }, 'Falha ao publicar comando');
+        logger.error({ err, deviceId: req.params.id, type, user: req.user }, 'Falha ao publicar comando');
         return res.status(502).json({ error: 'falha ao publicar no broker' });
       }
+      if (type === 'temperature_set' || type === 'temperature_delta') {
+        commandStore.record(req.params.id, type, value, req.user);
+      }
+      influx.writeCommand(req.params.id, req.user, type, value);
       res.json({ ok: true });
     });
   });
